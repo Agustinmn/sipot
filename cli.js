@@ -1,10 +1,5 @@
 #!/usr/bin/env node
-// usage: cli.js --organization "Secretaría de Cultura"
-// usage: cli.js --organizationList obligados.[json|txt]
-// usage: cli.js --from 10 --to 12
-// Por default descarga documentos de Licitación pública e invitación a 3
-// Para descargar procedimientos de adjudicación directa usar type=1
-// usage: cli.js --from 10 --to 12 --type 1 --year 2018 --timeout 90000 --downloads_dir /path/to/destination/dir/
+// cli.js - Versión Final para Remote Debugging (Reutiliza pestaña)
 
 const buildOptions = require('minimist-options');
 
@@ -23,52 +18,16 @@ const options = buildOptions({
   }
 });
 
-// Options for 'state' input 
-// 1: Federación
-// 2: Aguascalientes
-// 3: Baja California
-// 4: Baja California Sur             
-// 5: Campeche
-// 6: Coahuila de Zaragoza    
-// 7: Colima
-// 8: Chiapas
-// 9: Chihuahua
-// 10: Ciudad de México
-// 11: Durango
-// 12: Guanajuato
-// 13: Guerrero
-// 14: Hidalgo
-// 15: Jalisco
-// 16: México
-// 17: Michoacán de Ocampo  
-// 18: Morelos
-// 19: Nayarit
-// 20: Nuevo León
-// 21: Oaxaca
-// 22: Puebla
-// 23: Querétaro
-// 24: Quintana Roo
-// 25: San Luis Potosí
-// 26: Sinaloa
-// 27: Sonora
-// 28: Tabasco
-// 29: Tamaulipas
-// 30: Tlaxcala
-// 31: Veracruz
-// 32: Yucatán
-// 33: Zacatecas
-
 const argv = require('minimist')(process.argv.slice(2), options)
 const fs = require('fs')
 const path = require('path')
-const scraper = require('./scraper')
+const scraper = require('./scraper') // Asegúrate de que scraper.js tenga la función connect()
 
 const { promisify } = require('util')
 
 const organization = argv.organization
 const organizationList = argv.organizationList
 const from = Number(argv.from || 0)
-// TODO: encontrar este número dinámicamente
 const to = Number(argv.to || 965)
 const year = argv.year
 const type = Number(argv.type)
@@ -88,17 +47,65 @@ const startUrl = 'https://consultapublicamx.plataformadetransparencia.org.mx/vut
     } catch (e) {
       organizations = orgData.toString().split('\n')
     }
-
     console.log(`Se encontraron ${organizations.length} organizaciones en ${organizationList}`)
   }
 
+  // 1. Conectarse al navegador existente
   const browser = await scraper.startBrowser({ development: !!argv.development })
 
   try {
-    const page = await scraper.getPage(browser, argv)
+    // 2. BUSCAR LA PESTAÑA ABIERTA (La clave del éxito)
+    // En lugar de abrir una nueva, buscamos las que ya existen.
+    const pages = await browser.pages();
+    let page;
 
-    await page.goto(startUrl + '#inicio', {waitUntil : 'networkidle2' }).catch(e => void 0)
+    if (pages.length > 0) {
+        console.log("✅ Usando la primera pestaña abierta (donde ya pasaste Cloudflare).");
+        page = pages[0];
+    } else {
+        console.log("⚠️ No se encontraron pestañas, creando una nueva...");
+        page = await browser.newPage();
+    }
 
+    // 3. INYECTAR PARCHES (Polyfills) EN LA PESTAÑA EXISTENTE
+    // Como no llamamos a scraper.getPage, tenemos que inyectar la compatibilidad aquí manualmente.
+    page.waitForTimeout = function (ms) { return new Promise(resolve => setTimeout(resolve, ms)); };
+    page.$x = async function(expression) { return await page.$$('xpath/' + expression); };
+    page.waitForXPath = async function(expression, options) { return await page.waitForSelector('xpath/' + expression, options); };
+    
+    // Configurar descargas
+    try {
+        const client = await page.createCDPSession();
+        await client.send('Page.setDownloadBehavior', {
+            behavior: 'allow',
+            downloadPath: argv.downloads_dir
+        });
+    } catch (err) {
+        console.log("Nota: No se pudo configurar la ruta de descarga (quizás ya estaba lista).");
+    }
+
+
+    // 4. VERIFICAR DÓNDE ESTAMOS
+    console.log("Verificando estado de la página...");
+    
+    // Solo recargamos si NO estamos en la PNT, para no molestar a Cloudflare
+    if (!page.url().includes('consultaPublica.xhtml')) {
+        console.log("Navegando a la URL inicial...");
+        await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
+    } else {
+        console.log("✅ Ya estamos en la URL correcta. Saltando carga inicial.");
+    }
+
+    // Asegurar que estamos en la sección #inicio
+    if (!page.url().includes('#inicio')) {
+         await page.goto(startUrl + '#inicio', {waitUntil : 'domcontentloaded'});
+    }
+    
+    // Esperar un momento por seguridad
+    await page.waitForTimeout(2000);
+
+
+    // 5. INICIO DEL PROCESO
     console.log('Descargando documentos para el año', year)
     if (type === 1) {
       console.log('Procedimientos de adjudicación directa')
@@ -109,14 +116,14 @@ const startUrl = 'https://consultapublicamx.plataformadetransparencia.org.mx/vut
     if (organization) {
       await scraper.takeTo(page, 'tarjetaInformativa', stateCode, { organizationName: organization, year })
       await scraper.getContract(page, organization, null, year, type)
-      await page.close()
-      await browser.close()
+      
+      // NO cerramos el navegador al terminar, solo desconectamos
+      console.log("Finalizado. Desconectando del navegador...");
+      browser.disconnect(); 
       return true
     }
 
-    // Prepara parametros para el loop de scraping
-    // Iteramos una lista de organizaciones
-    // o una secuencia ascendente
+    // Loop de scraping para listas
     let parameters = []
     if (organizations) {
       parameters = organizations.map(o => [o, null])
@@ -140,7 +147,6 @@ const startUrl = 'https://consultapublicamx.plataformadetransparencia.org.mx/vut
 
         const res = await scraper.getContract(page, ...invocationParams, year, type)
       } catch (e) {
-        // Nos lo brincamos si falla
         console.log(e)
         console.log(`La organización ${orgId} no se pudo escrapear; brincando...`)
         if (e.message.match('redirige')) {
@@ -152,8 +158,6 @@ const startUrl = 'https://consultapublicamx.plataformadetransparencia.org.mx/vut
         }
       }
 
-      // Selecciona la siguiente organización del dropdown
-      // Nota: seremos redirigidos a #obligaciones pero al inicio del loop llamamos a takeTo
       if (nextParams) {
         const nextId = nextParams[0] || nextParams[1]
         console.log('La siguiente org será', nextId)
@@ -161,15 +165,17 @@ const startUrl = 'https://consultapublicamx.plataformadetransparencia.org.mx/vut
       }
     }
 
-    // Por si quedan algunas descargas pendientes
     await Promise.all(scraper.downloadsInProgress)
-    await browser.close()
-
+    
     console.log('Se descargaron %i archivos', scraper.downloadsInProgress.length)
     console.log('Terminamos el scraping')
+    browser.disconnect(); // Desconectar limpiamente
+
   } catch (e) {
-    await browser.close()
-    console.log('Algo falló')
+    console.log('\n❌ ERROR FATAL:', e.message);
+    // No cerramos el navegador para que puedas inspeccionar
+    console.log("El script se detuvo, pero tu navegador sigue abierto para revisión.");
+    browser.disconnect();
     throw e
   }
 })()
