@@ -63,7 +63,7 @@ async function navigateToObligations (page, organizationName = null, organizatio
   if (!dropdownOrg.length) throw new Error(`❌ No encontramos la institución '${organizationName}'`);
   
   await dropdownOrg[0].click();
-  console.log("✅ Institución seleccionada.");
+  console.log(" Institución seleccionada.");
   await page.waitForTimeout(1500);
 
   console.log(`Seleccionando año ${year}...`);
@@ -71,34 +71,34 @@ async function navigateToObligations (page, organizationName = null, organizatio
       const yearSelector = 'select[id*="cboEjercicio"]';
       await page.waitForSelector(yearSelector, { timeout: 5000 });
       await page.select(yearSelector, String(year));
-      console.log("✅ Año seleccionado.");
+      console.log(" Año seleccionado.");
   } catch (e) {
-      console.log("⚠️ No pude seleccionar el año.");
+      console.log(" No pude seleccionar el año.");
   }
 
   try { await page.waitForSelector('div.capaBloqueaPantalla', { hidden: true, timeout: 5000 }); } catch(e) {}
 
-  console.log("⏳ Esperando que carguen las carpetas automáticas...");
+  console.log(" Esperando que carguen las carpetas automáticas...");
   await page.waitForSelector('div.tituloObligacion', { timeout: 60000 });
-  console.log("✅ Carpetas detectadas.");
+  console.log(" Carpetas detectadas.");
 }
 
 /**
  * FASE 2: LÓGICA DE DESCARGA (AJUSTADA AL HTML DEL MODAL)
  */
 async function getContract (page, organizationName = null, organizationIndex = 0, year = 2021, type) {
-  console.log("\n🚀 Iniciando Fase 2: Configuración de Consulta...");
+  console.log("\n Iniciando Fase 2: Configuración de Consulta...");
 
   // --- 1. VERIFICACIÓN DE ZONA ---
   try {
     await page.waitForXPath('//label[contains(text(), "Periodo de actualización")]', { visible: true, timeout: 20000 });
   } catch (e) {
-    throw new Error("❌ Error Crítico: No veo el formulario de consulta.");
+    throw new Error(" Error Crítico: No veo el formulario de consulta.");
   }
   await page.waitForTimeout(1500);
 
   // --- 2. SELECCIONAR TRIMESTRES ---
-  console.log("📅 Seleccionando trimestres...");
+  console.log(" Seleccionando trimestres...");
   const selectAllPeriods = await page.$x('//input[@value="99" and contains(@id, "checkPeriodos")]');
   
   if (selectAllPeriods.length > 0) {
@@ -131,12 +131,12 @@ async function getContract (page, organizationName = null, organizationIndex = 0
 
 
   // --- 4. ESPERAR Y VALIDAR RESULTADOS ---
-  console.log("⏳ Esperando resultados válidos (mayores a 0)...");
+  console.log(" Esperando resultados válidos (mayores a 0)...");
   
   try {
       await page.waitForSelector('#itTotalResultados', { visible: true, timeout: 180000 });
   } catch(e) {
-      console.log("❌ ERROR: El contador nunca apareció.");
+      console.log(" ERROR: El contador nunca apareció.");
       throw new Error("ABORTANDO: Consulta fallida.");
   }
 
@@ -151,7 +151,7 @@ async function getContract (page, organizationName = null, organizationIndex = 0
       console.log(`   Lectura #${intentosValidacion + 1}: ${totalResults} resultados.`);
 
       if (totalResults > 0) {
-          console.log("✅ ¡Confirmado! Hay datos.");
+          console.log(" ¡Confirmado! Hay datos.");
           break;
       }
 
@@ -161,7 +161,7 @@ async function getContract (page, organizationName = null, organizationIndex = 0
   }
 
   if (totalResults === 0) {
-      console.log("⛔ CONFIRMADO: El resultado final es 0.");
+      console.log(" CONFIRMADO: El resultado final es 0.");
       return false; 
   }
 
@@ -174,9 +174,9 @@ async function getContract (page, organizationName = null, organizationIndex = 0
     await page.waitForXPath(downloadBtnXPath, { visible: true, timeout: 20000 });
     const downloadButton = await page.$x(downloadBtnXPath);
     await downloadButton[0].click();
-    console.log("✅ Click en DESCARGAR realizado.");
+    console.log(" Click en DESCARGAR realizado.");
   } catch (e) {
-    console.log("❌ ERROR RARO: Hay resultados > 0 pero no aparece el botón.");
+    console.log(" ERROR RARO: Hay resultados > 0 pero no aparece el botón.");
     return false;
   }
 
@@ -196,10 +196,10 @@ async function getContract (page, organizationName = null, organizationIndex = 0
     
     // Es CRUCIAL dar este click para que cargue el contenido siguiente
     await downloadLabel[0].click();
-    console.log("✅ Pestaña 'Descargar' activada dentro del modal.");
+    console.log(" Pestaña 'Descargar' activada dentro del modal.");
     
   } catch(e) {
-    console.log("❌ ERROR: No pude dar click a la pestaña 'Descargar' en el modal.");
+    console.log(" ERROR: No pude dar click a la pestaña 'Descargar' en el modal.");
     console.log("   Sin este click, el menú de Excel no aparecerá.");
     throw e; // Detenemos aquí porque si esto falla, lo siguiente fallará seguro
   }
@@ -221,13 +221,13 @@ async function getContract (page, organizationName = null, organizationIndex = 0
       // Obtener opciones
       const options = await page.$x('//select[@id="formModalRangos:rangoExcel"]/option');
 
-      console.log(`✅ Encontré ${options.length} opciones de descarga.`);
+      console.log(` Encontré ${options.length} opciones de descarga.`);
 
       for (let i in options) {
         const [text, value] = await options[i].evaluate(node => [node.text, node.value]);
         if (value === '-1') continue;
 
-        console.log(`   ⬇️ Descargando parte: ${text}`);
+        console.log(`   ⬇ Descargando parte: ${text}`);
         
         await dropdown[0].click();
         await page.waitForTimeout(500);
@@ -264,7 +264,7 @@ async function getContract (page, organizationName = null, organizationIndex = 0
       await modal.evaluate(b => b.click());
 
   } catch (e) {
-      console.error("❌ Error dentro del modal de descarga:", e.message);
+      console.error(" Error dentro del modal de descarga:", e.message);
   }
 
   try { await page.waitForSelector('div.capaBloqueaPantalla', { hidden: true, timeout: 5000 }); } catch(e) {}
@@ -411,10 +411,10 @@ async function startBrowser (params) {
         browserURL: 'http://127.0.0.1:9222',
         defaultViewport: null
     });
-    console.log("✅ ¡Conexión exitosa al navegador!");
+    console.log(" ¡Conexión exitosa al navegador!");
     return browser;
   } catch (e) {
-    console.error("❌ No se pudo conectar a Chrome.");
+    console.error(" No se pudo conectar a Chrome.");
     throw e;
   }
 }
